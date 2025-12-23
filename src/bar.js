@@ -524,18 +524,89 @@ export default class Bar {
     compute_start_end_date() {
         const bar = this.$bar;
         const x_in_units = bar.getX() / this.gantt.config.column_width;
-        let new_start_date = date_utils.add(
-            this.gantt.gantt_start,
-            x_in_units * this.gantt.config.step,
-            this.gantt.config.unit,
-        );
 
-        const width_in_units = bar.getWidth() / this.gantt.config.column_width;
-        const new_end_date = date_utils.add(
-            new_start_date,
-            width_in_units * this.gantt.config.step,
-            this.gantt.config.unit,
-        );
+        let new_start_date, new_end_date;
+
+        if (this.gantt.view_is('Month')) {
+            // For Month view, reverse the calculation from compute_x
+            const full_months = Math.floor(x_in_units);
+            const fraction_of_month = x_in_units - full_months;
+
+            // Start date: add full months to gantt_start
+            new_start_date = date_utils.add(
+                this.gantt.gantt_start,
+                full_months,
+                'month',
+            );
+
+            // Get days in this month
+            const days_in_start_month = date_utils.get_days_in_month(new_start_date);
+
+            // Add the fractional days
+            const days_to_add = Math.round(fraction_of_month * days_in_start_month);
+            new_start_date = date_utils.add(new_start_date, days_to_add, 'day');
+
+            // Calculate end date using width
+            const width_in_units = bar.getWidth() / this.gantt.config.column_width;
+            const end_x_in_units = x_in_units + width_in_units;
+            const end_full_months = Math.floor(end_x_in_units);
+            const end_fraction_of_month = end_x_in_units - end_full_months;
+
+            new_end_date = date_utils.add(
+                this.gantt.gantt_start,
+                end_full_months,
+                'month',
+            );
+
+            const days_in_end_month = date_utils.get_days_in_month(new_end_date);
+            const end_days_to_add = Math.round(end_fraction_of_month * days_in_end_month);
+            new_end_date = date_utils.add(new_end_date, end_days_to_add, 'day');
+
+        } else if (this.gantt.view_is('Year')) {
+            // For Year view, similar reverse calculation
+            const full_years = Math.floor(x_in_units);
+            const fraction_of_year = x_in_units - full_years;
+
+            new_start_date = date_utils.add(
+                this.gantt.gantt_start,
+                full_years,
+                'year',
+            );
+
+            const days_in_start_year = date_utils.get_days_in_year(new_start_date);
+            const days_to_add = Math.round(fraction_of_year * days_in_start_year);
+            new_start_date = date_utils.add(new_start_date, days_to_add, 'day');
+
+            const width_in_units = bar.getWidth() / this.gantt.config.column_width;
+            const end_x_in_units = x_in_units + width_in_units;
+            const end_full_years = Math.floor(end_x_in_units);
+            const end_fraction_of_year = end_x_in_units - end_full_years;
+
+            new_end_date = date_utils.add(
+                this.gantt.gantt_start,
+                end_full_years,
+                'year',
+            );
+
+            const days_in_end_year = date_utils.get_days_in_year(new_end_date);
+            const end_days_to_add = Math.round(end_fraction_of_year * days_in_end_year);
+            new_end_date = date_utils.add(new_end_date, end_days_to_add, 'day');
+
+        } else {
+            // Default calculation for other views
+            new_start_date = date_utils.add(
+                this.gantt.gantt_start,
+                x_in_units * this.gantt.config.step,
+                this.gantt.config.unit,
+            );
+
+            const width_in_units = bar.getWidth() / this.gantt.config.column_width;
+            new_end_date = date_utils.add(
+                new_start_date,
+                width_in_units * this.gantt.config.step,
+                this.gantt.config.unit,
+            );
+        }
 
         return { new_start_date, new_end_date };
     }
@@ -574,32 +645,46 @@ export default class Bar {
         const task_start = this.task._start;
         const gantt_start = this.gantt.gantt_start;
 
-        const diff =
-            date_utils.diff(task_start, gantt_start, this.gantt.config.unit) /
-            this.gantt.config.step;
+        let x;
 
-        let x = diff * column_width;
+        if (this.gantt.view_is('Month')) {
+            // For Month view, calculate position based on actual month boundaries
+            // Each column represents one month with normalized width
+            const month_diff = date_utils.diff(task_start, gantt_start, 'month');
 
-        /* Since the column width is based on 30,
-        we count the month-difference, multiply it by 30 for a "pseudo-month"
-        and then add the days in the month, making sure the number does not exceed 29
-        so it is within the column */
+            // Get the day of the month (1-31)
+            const day_in_month = task_start.getDate();
 
-        // if (this.gantt.view_is('Month')) {
-        //     const diffDaysBasedOn30DayMonths =
-        //         date_utils.diff(task_start, gantt_start, 'month') * 30;
-        //     const dayInMonth = Math.min(
-        //         29,
-        //         date_utils.format(
-        //             task_start,
-        //             'DD',
-        //             this.gantt.options.language,
-        //         ),
-        //     );
-        //     const diff = diffDaysBasedOn30DayMonths + dayInMonth;
+            // Get total days in the current task month
+            const days_in_task_month = date_utils.get_days_in_month(task_start);
 
-        //     x = (diff * column_width) / 30;
-        // }
+            // Calculate position: full months + fractional position within current month
+            // Normalize to consistent column width
+            x = month_diff * column_width +
+                (day_in_month - 1) * column_width / days_in_task_month;
+
+        } else if (this.gantt.view_is('Year')) {
+            // For Year view, calculate position based on actual year boundaries
+            const year_diff = date_utils.diff(task_start, gantt_start, 'year');
+
+            // Calculate day of year (0-365)
+            const start_of_year = new Date(task_start.getFullYear(), 0, 1);
+            const days_into_year = date_utils.diff(task_start, start_of_year, 'day');
+
+            // Get total days in the current year
+            const days_in_year = date_utils.get_days_in_year(task_start);
+
+            // Calculate position: full years + fractional position within current year
+            x = year_diff * column_width +
+                days_into_year * column_width / days_in_year;
+
+        } else {
+            // Default calculation for other views (Day, Week, Hour, etc.)
+            const diff =
+                date_utils.diff(task_start, gantt_start, this.gantt.config.unit) /
+                this.gantt.config.step;
+            x = diff * column_width;
+        }
 
         this.x = x;
     }
