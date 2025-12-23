@@ -138,8 +138,7 @@ export default class Gantt {
                 }
                 if (typeof option === 'string') {
                     if (option === 'weekend')
-                        this.config.ignored_function = (d) =>
-                            d.getDay() == 6 || d.getDay() == 0;
+                        this.config.ignored_function = this.options.is_weekend;
                     else this.config.ignored_dates.push(new Date(option + ' '));
                 }
             }
