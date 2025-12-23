@@ -308,14 +308,19 @@ export default class Bar {
         }
         if (!this.gantt.options.readonly_progress) {
             const bar_progress = this.$bar_progress;
-            this.$handle_progress = createSVG('circle', {
-                cx: bar_progress.getEndX(),
-                cy: bar_progress.getY() + bar_progress.getHeight() / 2,
-                r: 4.5,
-                class: 'handle progress',
-                append_to: this.handle_group,
-            });
-            this.handles.push(this.$handle_progress);
+            // Only show progress handle if progress is between 5% and 95% to avoid
+            // overlapping with resize handles (#549)
+            const progress = this.task.progress || 0;
+            if (progress > 5 && progress < 95) {
+                this.$handle_progress = createSVG('circle', {
+                    cx: bar_progress.getEndX(),
+                    cy: bar_progress.getY() + bar_progress.getHeight() / 2,
+                    r: 4.5,
+                    class: 'handle progress',
+                    append_to: this.handle_group,
+                });
+                this.handles.push(this.$handle_progress);
+            }
         }
 
         for (let handle of this.handles) {

@@ -195,9 +195,6 @@ export default class Gantt {
                     return false;
                 }
 
-                // cache index
-                task._index = i;
-
                 // if hours is not set, assume the last day is full day
                 // e.g: 2018-09-09 becomes 2018-09-09 23:59:59
                 const task_end_values = date_utils.get_date_values(task._end);
@@ -232,6 +229,12 @@ export default class Gantt {
                 return task;
             })
             .filter((t) => t);
+
+        // Set indices AFTER filtering to ensure correct array positions (#591)
+        this.tasks.forEach((task, i) => {
+            task._index = i;
+        });
+
         this.setup_dependencies();
     }
 
@@ -450,7 +453,7 @@ export default class Gantt {
 
         $.attr(this.$svg, {
             height: grid_height,
-            width: '100%',
+            width: grid_width,
         });
         this.grid_height = grid_height;
         if (this.options.container_height === 'auto')
@@ -1171,23 +1174,41 @@ export default class Gantt {
 
         if (this.options.infinite_padding) {
             let extended = false;
-            $.on(this.$container, 'mousewheel', (e) => {
+            let extendTimeout = null;
+
+            // Use 'wheel' event instead of deprecated 'mousewheel' (#490)
+            $.on(this.$container, 'wheel', (e) => {
+                // Clear any pending extend timeout to avoid jitter
+                if (extendTimeout) {
+                    clearTimeout(extendTimeout);
+                }
+
                 let trigger = this.$container.scrollWidth / 2;
                 if (!extended && e.currentTarget.scrollLeft <= trigger) {
-                    let old_scroll_left = e.currentTarget.scrollLeft;
+                    const container = e.currentTarget;
+                    let old_scroll_left = container.scrollLeft;
                     extended = true;
 
-                    this.gantt_start = date_utils.add(
-                        this.gantt_start,
-                        -this.config.extend_by_units,
-                        this.config.unit,
-                    );
-                    this.setup_date_values();
-                    this.render();
-                    e.currentTarget.scrollLeft =
-                        old_scroll_left +
-                        this.config.column_width * this.config.extend_by_units;
-                    setTimeout(() => (extended = false), 300);
+                    // Use requestAnimationFrame for smoother rendering (#490)
+                    requestAnimationFrame(() => {
+                        this.gantt_start = date_utils.add(
+                            this.gantt_start,
+                            -this.config.extend_by_units,
+                            this.config.unit,
+                        );
+                        this.setup_date_values();
+                        this.render();
+                        container.scrollLeft =
+                            old_scroll_left +
+                            this.config.column_width * this.config.extend_by_units;
+
+                        extendTimeout = setTimeout(() => {
+                            extended = false;
+                            extendTimeout = null;
+                        }, 500);
+                    });
+
+                    return;
                 }
 
                 if (
@@ -1197,17 +1218,26 @@ export default class Gantt {
                             e.currentTarget.clientWidth) <=
                         trigger
                 ) {
-                    let old_scroll_left = e.currentTarget.scrollLeft;
+                    const container = e.currentTarget;
+                    let old_scroll_left = container.scrollLeft;
                     extended = true;
-                    this.gantt_end = date_utils.add(
-                        this.gantt_end,
-                        this.config.extend_by_units,
-                        this.config.unit,
-                    );
-                    this.setup_date_values();
-                    this.render();
-                    e.currentTarget.scrollLeft = old_scroll_left;
-                    setTimeout(() => (extended = false), 300);
+
+                    // Use requestAnimationFrame for smoother rendering (#490)
+                    requestAnimationFrame(() => {
+                        this.gantt_end = date_utils.add(
+                            this.gantt_end,
+                            this.config.extend_by_units,
+                            this.config.unit,
+                        );
+                        this.setup_date_values();
+                        this.render();
+                        container.scrollLeft = old_scroll_left;
+
+                        extendTimeout = setTimeout(() => {
+                            extended = false;
+                            extendTimeout = null;
+                        }, 500);
+                    });
                 }
             });
         }
@@ -1430,7 +1460,9 @@ export default class Gantt {
             }
 
             $bar_progress.setAttribute('width', $bar_progress.owidth + dx);
-            $.attr(bar.$handle_progress, 'cx', $bar_progress.getEndX());
+            if (bar.$handle_progress) {
+                $.attr(bar.$handle_progress, 'cx', $bar_progress.getEndX());
+            }
 
             $bar_progress.finaldx = dx;
         });
