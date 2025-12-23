@@ -57,7 +57,7 @@ export default class Bar {
         this.compute_y();
         this.compute_duration();
         this.corner_radius = this.gantt.options.bar_corner_radius;
-        this.width = this.gantt.config.column_width * this.duration;
+        this.compute_width();
         if (!this.task.progress || this.task.progress < 0)
             this.task.progress = 0;
         if (this.task.progress > 100) this.task.progress = 100;
@@ -523,77 +523,115 @@ export default class Bar {
 
     compute_start_end_date() {
         const bar = this.$bar;
-        const x_in_units = bar.getX() / this.gantt.config.column_width;
+        const bar_x = bar.getX();
 
         let new_start_date, new_end_date;
 
         if (this.gantt.view_is('Month')) {
             // For Month view, reverse the calculation from compute_x
-            const full_months = Math.floor(x_in_units);
-            const fraction_of_month = x_in_units - full_months;
+            // We need to find which month the bar_x falls into
+            let accumulated_x = 0;
+            let current_date = new Date(this.gantt.gantt_start);
 
-            // Start date: add full months to gantt_start
-            new_start_date = date_utils.add(
-                this.gantt.gantt_start,
-                full_months,
-                'month',
-            );
+            // Find the month where the bar starts
+            while (true) {
+                const days_in_month = date_utils.get_days_in_month(current_date);
+                const month_width = (days_in_month * this.gantt.config.column_width) / 30;
 
-            // Get days in this month
-            const days_in_start_month = date_utils.get_days_in_month(new_start_date);
+                if (accumulated_x + month_width > bar_x) {
+                    // The bar starts in this month
+                    const x_within_month = bar_x - accumulated_x;
+                    const fraction_of_month = x_within_month / month_width;
+                    const day_of_month = Math.round(fraction_of_month * days_in_month) + 1;
 
-            // Add the fractional days
-            const days_to_add = Math.round(fraction_of_month * days_in_start_month);
-            new_start_date = date_utils.add(new_start_date, days_to_add, 'day');
+                    new_start_date = new Date(
+                        current_date.getFullYear(),
+                        current_date.getMonth(),
+                        Math.min(day_of_month, days_in_month)
+                    );
+                    break;
+                }
 
-            // Calculate end date using width
-            const width_in_units = bar.getWidth() / this.gantt.config.column_width;
-            const end_x_in_units = x_in_units + width_in_units;
-            const end_full_months = Math.floor(end_x_in_units);
-            const end_fraction_of_month = end_x_in_units - end_full_months;
+                accumulated_x += month_width;
+                current_date = date_utils.add(current_date, 1, 'month');
+            }
 
-            new_end_date = date_utils.add(
-                this.gantt.gantt_start,
-                end_full_months,
-                'month',
-            );
+            // Calculate end date similarly
+            const bar_end_x = bar_x + bar.getWidth();
+            accumulated_x = 0;
+            current_date = new Date(this.gantt.gantt_start);
 
-            const days_in_end_month = date_utils.get_days_in_month(new_end_date);
-            const end_days_to_add = Math.round(end_fraction_of_month * days_in_end_month);
-            new_end_date = date_utils.add(new_end_date, end_days_to_add, 'day');
+            while (true) {
+                const days_in_month = date_utils.get_days_in_month(current_date);
+                const month_width = (days_in_month * this.gantt.config.column_width) / 30;
+
+                if (accumulated_x + month_width >= bar_end_x) {
+                    const x_within_month = bar_end_x - accumulated_x;
+                    const fraction_of_month = x_within_month / month_width;
+                    const day_of_month = Math.round(fraction_of_month * days_in_month) + 1;
+
+                    new_end_date = new Date(
+                        current_date.getFullYear(),
+                        current_date.getMonth(),
+                        Math.min(day_of_month, days_in_month)
+                    );
+                    break;
+                }
+
+                accumulated_x += month_width;
+                current_date = date_utils.add(current_date, 1, 'month');
+            }
 
         } else if (this.gantt.view_is('Year')) {
             // For Year view, similar reverse calculation
-            const full_years = Math.floor(x_in_units);
-            const fraction_of_year = x_in_units - full_years;
+            let accumulated_x = 0;
+            let current_date = new Date(this.gantt.gantt_start);
 
-            new_start_date = date_utils.add(
-                this.gantt.gantt_start,
-                full_years,
-                'year',
-            );
+            // Find the year where the bar starts
+            while (true) {
+                const days_in_year = date_utils.get_days_in_year(current_date);
+                const year_width = (days_in_year * this.gantt.config.column_width) / 365;
 
-            const days_in_start_year = date_utils.get_days_in_year(new_start_date);
-            const days_to_add = Math.round(fraction_of_year * days_in_start_year);
-            new_start_date = date_utils.add(new_start_date, days_to_add, 'day');
+                if (accumulated_x + year_width > bar_x) {
+                    const x_within_year = bar_x - accumulated_x;
+                    const fraction_of_year = x_within_year / year_width;
+                    const day_of_year = Math.round(fraction_of_year * days_in_year);
 
-            const width_in_units = bar.getWidth() / this.gantt.config.column_width;
-            const end_x_in_units = x_in_units + width_in_units;
-            const end_full_years = Math.floor(end_x_in_units);
-            const end_fraction_of_year = end_x_in_units - end_full_years;
+                    const start_of_year = new Date(current_date.getFullYear(), 0, 1);
+                    new_start_date = date_utils.add(start_of_year, day_of_year, 'day');
+                    break;
+                }
 
-            new_end_date = date_utils.add(
-                this.gantt.gantt_start,
-                end_full_years,
-                'year',
-            );
+                accumulated_x += year_width;
+                current_date = date_utils.add(current_date, 1, 'year');
+            }
 
-            const days_in_end_year = date_utils.get_days_in_year(new_end_date);
-            const end_days_to_add = Math.round(end_fraction_of_year * days_in_end_year);
-            new_end_date = date_utils.add(new_end_date, end_days_to_add, 'day');
+            // Calculate end date similarly
+            const bar_end_x = bar_x + bar.getWidth();
+            accumulated_x = 0;
+            current_date = new Date(this.gantt.gantt_start);
+
+            while (true) {
+                const days_in_year = date_utils.get_days_in_year(current_date);
+                const year_width = (days_in_year * this.gantt.config.column_width) / 365;
+
+                if (accumulated_x + year_width >= bar_end_x) {
+                    const x_within_year = bar_end_x - accumulated_x;
+                    const fraction_of_year = x_within_year / year_width;
+                    const day_of_year = Math.round(fraction_of_year * days_in_year);
+
+                    const start_of_year = new Date(current_date.getFullYear(), 0, 1);
+                    new_end_date = date_utils.add(start_of_year, day_of_year, 'day');
+                    break;
+                }
+
+                accumulated_x += year_width;
+                current_date = date_utils.add(current_date, 1, 'year');
+            }
 
         } else {
             // Default calculation for other views
+            const x_in_units = bar_x / this.gantt.config.column_width;
             new_start_date = date_utils.add(
                 this.gantt.gantt_start,
                 x_in_units * this.gantt.config.step,
@@ -648,35 +686,53 @@ export default class Bar {
         let x;
 
         if (this.gantt.view_is('Month')) {
-            // For Month view, calculate position based on actual month boundaries
-            // Each column represents one month with normalized width
-            const month_diff = date_utils.diff(task_start, gantt_start, 'month');
+            // For Month view, each month has variable width based on actual days
+            // We need to sum up the widths of all previous months
+            x = 0;
+            let current_date = new Date(gantt_start);
 
-            // Get the day of the month (1-31)
+            // Sum widths of all complete months before task month
+            while (
+                current_date.getFullYear() < task_start.getFullYear() ||
+                (current_date.getFullYear() === task_start.getFullYear() &&
+                 current_date.getMonth() < task_start.getMonth())
+            ) {
+                // Width of this month = (days_in_month / 30) * column_width
+                // This matches the calculation in make_grid_ticks()
+                const days_in_month = date_utils.get_days_in_month(current_date);
+                x += (days_in_month * column_width) / 30;
+
+                // Move to next month
+                current_date = date_utils.add(current_date, 1, 'month');
+            }
+
+            // Add fractional position within the task's month
             const day_in_month = task_start.getDate();
-
-            // Get total days in the current task month
             const days_in_task_month = date_utils.get_days_in_month(task_start);
-
-            // Calculate position: full months + fractional position within current month
-            // Normalize to consistent column width
-            x = month_diff * column_width +
-                (day_in_month - 1) * column_width / days_in_task_month;
+            const month_width = (days_in_task_month * column_width) / 30;
+            x += ((day_in_month - 1) / days_in_task_month) * month_width;
 
         } else if (this.gantt.view_is('Year')) {
-            // For Year view, calculate position based on actual year boundaries
-            const year_diff = date_utils.diff(task_start, gantt_start, 'year');
+            // For Year view, each year has variable width based on actual days (365/366)
+            x = 0;
+            let current_date = new Date(gantt_start);
 
-            // Calculate day of year (0-365)
+            // Sum widths of all complete years before task year
+            while (current_date.getFullYear() < task_start.getFullYear()) {
+                // Width of this year = (days_in_year / 365) * column_width
+                const days_in_year = date_utils.get_days_in_year(current_date);
+                x += (days_in_year * column_width) / 365;
+
+                // Move to next year
+                current_date = date_utils.add(current_date, 1, 'year');
+            }
+
+            // Add fractional position within the task's year
             const start_of_year = new Date(task_start.getFullYear(), 0, 1);
             const days_into_year = date_utils.diff(task_start, start_of_year, 'day');
-
-            // Get total days in the current year
-            const days_in_year = date_utils.get_days_in_year(task_start);
-
-            // Calculate position: full years + fractional position within current year
-            x = year_diff * column_width +
-                days_into_year * column_width / days_in_year;
+            const days_in_task_year = date_utils.get_days_in_year(task_start);
+            const year_width = (days_in_task_year * column_width) / 365;
+            x += (days_into_year / days_in_task_year) * year_width;
 
         } else {
             // Default calculation for other views (Day, Week, Hour, etc.)
@@ -731,6 +787,71 @@ export default class Bar {
             ) / this.gantt.config.step;
 
         this.ignored_duration_raw = this.duration - this.actual_duration_raw;
+    }
+
+    compute_width() {
+        const { column_width } = this.gantt.config;
+        const task_start = this.task._start;
+        const task_end = this.task._end;
+
+        if (this.gantt.view_is('Month')) {
+            // For Month view, sum up variable widths of all months the task spans
+            let width = 0;
+            let current_date = new Date(task_start);
+
+            while (current_date < task_end) {
+                const days_in_month = date_utils.get_days_in_month(current_date);
+                const month_width = (days_in_month * column_width) / 30;
+
+                // Calculate how much of this month is covered by the task
+                const month_start = new Date(current_date.getFullYear(), current_date.getMonth(), 1);
+                const month_end = date_utils.add(month_start, 1, 'month');
+
+                const overlap_start = current_date > month_start ? current_date : month_start;
+                const overlap_end = task_end < month_end ? task_end : month_end;
+
+                if (overlap_end > overlap_start) {
+                    const days_covered = date_utils.diff(overlap_end, overlap_start, 'day');
+                    width += (days_covered / days_in_month) * month_width;
+                }
+
+                // Move to next month
+                current_date = month_end;
+            }
+
+            this.width = width;
+
+        } else if (this.gantt.view_is('Year')) {
+            // For Year view, sum up variable widths of all years the task spans
+            let width = 0;
+            let current_date = new Date(task_start);
+
+            while (current_date < task_end) {
+                const days_in_year = date_utils.get_days_in_year(current_date);
+                const year_width = (days_in_year * column_width) / 365;
+
+                // Calculate how much of this year is covered by the task
+                const year_start = new Date(current_date.getFullYear(), 0, 1);
+                const year_end = new Date(current_date.getFullYear() + 1, 0, 1);
+
+                const overlap_start = current_date > year_start ? current_date : year_start;
+                const overlap_end = task_end < year_end ? task_end : year_end;
+
+                if (overlap_end > overlap_start) {
+                    const days_covered = date_utils.diff(overlap_end, overlap_start, 'day');
+                    width += (days_covered / days_in_year) * year_width;
+                }
+
+                // Move to next year
+                current_date = year_end;
+            }
+
+            this.width = width;
+
+        } else {
+            // Default calculation for other views
+            this.width = column_width * this.duration;
+        }
     }
 
     update_attr(element, attr, value) {
