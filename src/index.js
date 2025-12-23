@@ -6,6 +6,7 @@ import Bar from './bar';
 import Popup from './popup';
 
 import { DEFAULT_OPTIONS, DEFAULT_VIEW_MODES } from './defaults';
+import { getLocalizedString } from './locale';
 
 import './styles/gantt.css';
 
@@ -91,6 +92,21 @@ export default class Gantt {
             options.view_mode = options.view_modes[0];
         }
         this.options = { ...DEFAULT_OPTIONS, ...options };
+
+        // Adjust thick_line for view modes based on week_start option
+        const week_start = this.options.week_start;
+        if (this.options.view_modes) {
+            this.options.view_modes = this.options.view_modes.map((mode) => {
+                // For Day view, show thick line on the configured week start day
+                if (mode.name === 'Day' && mode.thick_line) {
+                    return {
+                        ...mode,
+                        thick_line: (d) => d.getDay() === week_start,
+                    };
+                }
+                return mode;
+            });
+        }
         const CSS_VARIABLES = {
             'grid-height': 'container_height',
             'bar-height': 'bar_height',
@@ -494,7 +510,7 @@ export default class Gantt {
             const $el = document.createElement('option');
             $el.selected = true;
             $el.disabled = true;
-            $el.textContent = 'Mode';
+            $el.textContent = getLocalizedString('mode', this.options.language);
             $select.appendChild($el);
 
             for (const mode of this.options.view_modes) {
@@ -519,7 +535,7 @@ export default class Gantt {
         if (this.options.today_button) {
             let $today_button = document.createElement('button');
             $today_button.classList.add('today-button');
-            $today_button.textContent = 'Today';
+            $today_button.textContent = getLocalizedString('today', this.options.language);
             $today_button.onclick = this.scroll_current.bind(this);
             this.$side_header.prepend($today_button);
             this.$today_button = $today_button;
